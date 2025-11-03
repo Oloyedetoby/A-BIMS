@@ -2,11 +2,15 @@
   <div id="app-wrapper">
     <header>
       <h1>Amen Books Management System</h1>
+      <!-- This is the CORRECTED version -->
       <nav>
         <router-link to="/">Dashboard</router-link>
         <router-link to="/customers">Customers</router-link>
         <router-link to="/books">Books</router-link>
+        <router-link to="/authors">Authors</router-link>
         <router-link to="/invoices">Invoices</router-link>
+        <router-link to="/publishers">Publishers</router-link>
+        <router-link to="/route-axes">Route/Axes</router-link>
       </nav>
     </header>
     <main>

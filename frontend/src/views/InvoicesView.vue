@@ -61,6 +61,7 @@
                 <td>Payment on {{ payment.payment_date }}</td>
                 <td class="notes">{{ payment.notes }}</td>
                 <td>₦{{ formatPrice(payment.amount) }}</td>
+                <td class="actions-cell"><button @click="printReceipt(invoice.id, payment.id)" class="btn-print">Print</button></td>
               </tr>
             </tbody>
           </table>
@@ -102,6 +103,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useToast } from 'vue-toastification';
+import { useRouter } from 'vue-router';
 import apiClient from '../api';
 import PaymentModal from '../components/PaymentModal.vue';
 
@@ -119,6 +121,7 @@ const paymentData = ref({
   notes: ''
 });
 const toast = useToast();
+const router = useRouter();
 const selectedStatus = ref('');
 
 // --- API Calls ---
@@ -140,6 +143,14 @@ const fetchInvoices = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const printReceipt = (invoiceId, paymentId) => {
+  const routeData = router.resolve({ 
+    name: 'PrintReceipt', 
+    params: { invoiceId, paymentId } 
+  });
+  window.open(routeData.href, '_blank');
 };
 
 const submitPayment = async () => {
@@ -204,7 +215,16 @@ onMounted(fetchInvoices);
   gap: 15px;
   align-items: center;
 }
-
+.actions-cell { text-align: center; }
+.btn-print {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
 .filters select {
   padding: 8px 12px;
   font-size: 1rem;

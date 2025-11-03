@@ -8,7 +8,10 @@ import Toast from 'vue-toastification'
 import 'vue-toastification/dist/index.css'
 // --- END: Add these lines ---
 
-const app = createApp(App)
+
+const app = createApp({
+  template: '<router-view />'
+})
 
 app.use(router)
 app.use(Toast) // <-- TELL VUE TO USE THE TOAST PLUGIN

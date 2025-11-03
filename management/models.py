@@ -29,6 +29,7 @@ class Book(models.Model):
     publisher = models.ForeignKey(Publisher, on_delete=models.PROTECT)
     # ADD THIS NEW LINE FOR THE MASTER PRICE
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    quantity_in_stock = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return self.title
@@ -46,7 +47,8 @@ class Customer(models.Model):
         'self',
         on_delete=models.SET_NULL,
         null=True,
-        blank=True
+        blank=True,
+        related_name='referred_customers'
     )
 
     def __str__(self):
