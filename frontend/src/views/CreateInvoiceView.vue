@@ -126,6 +126,8 @@ onMounted(async () => {
   }
 });
 
+
+
 const submitInvoice = async () => {
   if (invoice.value.items.length === 0) {
     toast.warning('Please add at least one item to the invoice.');
@@ -137,13 +139,29 @@ const submitInvoice = async () => {
   }
   isSubmitting.value = true;
   error.value = null;
+
   try {
     await apiClient.post('/invoices/', invoice.value);
     toast.success("Invoice created successfully!");
     router.push('/invoices');
+
   } catch (err) {
-    error.value = 'Failed to create invoice. Please check the data and try again.';
-    toast.error(error.value);
+    // THIS IS THE KEY FIX
+    if (err.response && err.response.data) {
+      // If the backend sent a specific validation error, display it
+      const errorData = err.response.data;
+      // DRF sends errors in a list, often under a key like 'non_field_errors'
+      // or as a plain list. We'll find the first message.
+      const firstError = Array.isArray(errorData) ? errorData[0] : 
+                         (errorData.non_field_errors ? errorData.non_field_errors[0] : 
+                         'An unknown validation error occurred.');
+      error.value = firstError;
+      toast.error(firstError);
+    } else {
+      // For generic network errors
+      error.value = 'Failed to create invoice. Please check your connection.';
+      toast.error(error.value);
+    }
     console.error(err);
   } finally {
     isSubmitting.value = false;

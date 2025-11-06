@@ -3,6 +3,7 @@
     title="Manage Route/Axes"
     apiEndpoint="route-axes"
     itemName="Route/Axes"
+    detailRouteName="RouteAxisDetail"
   />
 </template>
 

@@ -9,6 +9,7 @@
         <option value="PARTIALLY_PAID">Partially Paid</option>
         <option value="PAID">Paid</option>
       </select>
+      <input type="text" v-model="searchTerm" placeholder="Search by Invoice #, Customer, or Book..." @input="debouncedFetchInvoices">
       <router-link to="/invoices/new" class="btn-primary">Create New Invoice</router-link>
     </div>
     
@@ -101,6 +102,8 @@
 </template>
 
 <script setup>
+const searchTerm = ref('');
+let debounceTimer = null;
 import { ref, onMounted } from 'vue';
 import { useToast } from 'vue-toastification';
 import { useRouter } from 'vue-router';
@@ -133,7 +136,9 @@ const fetchInvoices = async () => {
     if (selectedStatus.value) {
       params.status = selectedStatus.value;
     }
-
+    if (searchTerm.value) {
+      params.search = searchTerm.value;
+    }
     const response = await apiClient.get('/invoices/', { params });  
 
     invoices.value = response.data;
@@ -194,6 +199,13 @@ const formatPrice = (value) => {
   return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
+const debouncedFetchInvoices = () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+        fetchInvoices();
+    }, 300); // Wait 300ms after user stops typing
+};
+
 const getInvoiceStatusClass = (status) => {
     if (!status) return '';
     return status.toLowerCase().replace('_', '');
@@ -215,6 +227,15 @@ onMounted(fetchInvoices);
   gap: 15px;
   align-items: center;
 }
+
+.filters input {
+  width: 350px; /* Make it a bit wider for the longer placeholder */
+  padding: 8px 12px;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
 .actions-cell { text-align: center; }
 .btn-print {
   background-color: #6c757d;

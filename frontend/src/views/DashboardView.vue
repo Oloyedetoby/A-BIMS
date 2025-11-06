@@ -30,41 +30,47 @@
             <th>Invoice #</th>
             <th>Customer</th>
             <th>Due Date</th>
-            <th>Total Amount</th>
-            <th>Amount Paid</th>
-            <th>Balance Due</th>
+            <th class="text-center">Days Overdue</th>
+            <th class="text-right">Balance Due</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="debtor in debtors" :key="debtor.id">
-            <td>{{ debtor.id }}</td>
-            <td>{{ debtor.customer_name }}</td>
+            <td @click="viewInvoice(debtor.id)" class="link-cell">#{{ debtor.id }}</td>
+            <td @click="viewCustomer(debtor.customer_id)" class="link-cell">{{ debtor.customer_name }}</td>
             <td>{{ debtor.due_date }}</td>
-            <td>₦{{ formatPrice(debtor.total_amount) }}</td>
-            <td>₦{{ formatPrice(debtor.amount_paid) }}</td>
-            <td class="balance-due">₦{{ formatPrice(debtor.balance_due) }}</td>
+            <td class="text-center" :class="getOverdueClass(debtor.days_overdue)">
+              {{ debtor.days_overdue }}
+            </td>
+            <td class="balance-due text-right">₦{{ formatPrice(debtor.balance_due) }}</td>
           </tr>
         </tbody>
       </table>
+    </div>
+    <div v-else-if="!loading" class="no-debtors">
+        <p>🎉 No outstanding debts found. Great job!</p>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import apiClient from '../api';
 
+const router = useRouter();
 const stats = ref(null);
 const debtors = ref([]);
 const loading = ref(true);
 const error = ref(null);
 
 onMounted(async () => {
+  loading.value = true;
+  error.value = null;
   try {
-    // Fetch both sets of data at the same time for speed
     const [statsRes, debtorsRes] = await Promise.all([
       apiClient.get('/dashboard-stats/'),
-      apiClient.get('/debtors/')
+      apiClient.get('/debtors/'),
     ]);
     stats.value = statsRes.data;
     debtors.value = debtorsRes.data;
@@ -77,8 +83,25 @@ onMounted(async () => {
 });
 
 const formatPrice = (value) => {
-    return parseFloat(value).toFixed(2);
-}
+    const num = parseFloat(value);
+    return isNaN(num) ? '0.00' : num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
+
+const getOverdueClass = (days) => {
+  if (days > 30) return 'overdue-critical';
+  if (days > 7) return 'overdue-warning';
+  if (days > 0) return 'overdue-ok';
+  return ''; // Not overdue
+};
+
+const viewCustomer = (customerId) => {
+  router.push({ name: 'CustomerDetail', params: { id: customerId } });
+};
+
+const viewInvoice = (invoiceId) => {
+  // A simple navigation for now. Can be enhanced to scroll to the invoice.
+  router.push('/invoices');
+};
 </script>
 
 <style scoped>
@@ -111,7 +134,28 @@ const formatPrice = (value) => {
 }
 .danger-icon { font-size: 1.5rem; }
 table { width: 100%; border-collapse: collapse; }
-th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+th, td { border-bottom: 1px solid #ddd; padding: 12px; text-align: left; }
 th { background-color: #ffdddd; }
+td { background-color: #fff; }
+tr:last-child td { border-bottom: none; }
+
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+
 .balance-due { font-weight: bold; color: #d0021b; }
+
+.link-cell {
+  cursor: pointer;
+  color: #007bff;
+  font-weight: 500;
+}
+.link-cell:hover {
+  text-decoration: underline;
+  background-color: #f8f9fa;
+}
+
+.overdue-ok { font-weight: bold; color: #ffc107; }
+.overdue-warning { font-weight: bold; color: #fd7e14; }
+.overdue-critical { font-weight: bold; color: #d0021b; background-color: #ffe8e8; }
+.no-debtors { text-align: center; padding: 30px; font-size: 1.2rem; color: #28a745; background-color: #f0fff4; border: 1px solid #28a745; border-radius: 8px; }
 </style>

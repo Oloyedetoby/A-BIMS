@@ -3,6 +3,7 @@
     title="Manage Publishers"
     apiEndpoint="publishers"
     itemName="Publishers"
+    detailRouteName="PublisherDetail"
   />
 </template>
 
