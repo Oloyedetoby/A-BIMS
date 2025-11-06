@@ -23,17 +23,23 @@
       </div>
     </div>
 
-    <div v-if="loading">Loading books...</div>
+    <div v-if="loading" class="loading-state">Loading books...</div>
     <div v-if="error" class="error">{{ error }}</div>
 
     <table v-if="books.length > 0">
       <thead>
         <tr>
-          <th>Title</th>
+          <th @click="sortBy('title')" class="sortable">
+            Title <span v-if="sortField === 'title'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+          </th>
           <th>Author</th>
           <th>Publisher</th>
-          <th class="text-right">Price</th>
-          <th class="text-right">In Stock</th>
+          <th @click="sortBy('price')" class="sortable text-right">
+            Price <span v-if="sortField === 'price'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+          </th>
+          <th @click="sortBy('quantity_in_stock')" class="sortable text-right">
+            In Stock <span v-if="sortField === 'quantity_in_stock'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -46,11 +52,10 @@
         </tr>
       </tbody>
     </table>
-    <div v-else-if="!loading">
+    <div v-else-if="!loading" class="no-data">
       <p>No books found matching your criteria.</p>
     </div>
 
-    <!-- The Modal for Creating and Editing Books -->
     <BookFormModal 
       :show="showModal"
       :book="null" 
@@ -63,36 +68,36 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useToast } from 'vue-toastification';
 import apiClient from '../api';
 import BookFormModal from '../components/BookFormModal.vue';
 
 const router = useRouter();
+const toast = useToast();
 const books = ref([]);
 const loading = ref(true);
 const error = ref(null);
 let debounceTimer = null;
 
-// State for filters and search
 const searchTerm = ref('');
 const authors = ref([]);
 const publishers = ref([]);
 const selectedAuthor = ref('');
 const selectedPublisher = ref('');
-
-// State for the modal
+const sortField = ref('title');
+const sortDir = ref('asc');
 const showModal = ref(false);
 
 const viewBook = (bookId) => {
   router.push(`/books/${bookId}`);
 };
 
-// Modal controls
 const openCreateModal = () => {
   showModal.value = true;
 };
 const handleBookSaved = () => {
   showModal.value = false;
-  fetchBooks(); // Refresh the list
+  fetchBooks();
 };
 
 const fetchBooks = async () => {
@@ -103,11 +108,13 @@ const fetchBooks = async () => {
     if (searchTerm.value) params.search = searchTerm.value;
     if (selectedAuthor.value) params.author = selectedAuthor.value;
     if (selectedPublisher.value) params.publisher = selectedPublisher.value;
+    params.ordering = `${sortDir.value === 'desc' ? '-' : ''}${sortField.value}`;
     
     const response = await apiClient.get('/books/', { params });
     books.value = response.data;
   } catch (err) {
     error.value = 'Failed to fetch books.';
+    toast.error(error.value);
     console.error(err);
   } finally {
     loading.value = false;
@@ -123,6 +130,7 @@ const fetchFilterData = async () => {
         authors.value = authorRes.data;
         publishers.value = pubRes.data;
     } catch (err) {
+        toast.error("Failed to load filter options.");
         console.error("Failed to fetch filter data:", err);
     }
 };
@@ -132,6 +140,16 @@ const debouncedFetchBooks = () => {
     debounceTimer = setTimeout(fetchBooks, 300);
 };
 
+const sortBy = (field) => {
+  if (sortField.value === field) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField.value = field;
+    sortDir.value = (field === 'price' || field === 'quantity_in_stock') ? 'desc' : 'asc';
+  }
+  fetchBooks();
+};
+
 onMounted(() => {
   fetchBooks();
   fetchFilterData();
@@ -139,12 +157,11 @@ onMounted(() => {
 
 const formatPrice = (value) => {
   const num = parseFloat(value);
-  return isNaN(num) ? '0.00' : num.toFixed(2);
+  return isNaN(num) ? '0.00' : num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 </script>
 
 <style scoped>
-/* Using the same robust styling from the Customers page */
 .header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .controls { display: flex; gap: 15px; align-items: center; }
 .btn-primary { background-color: #42b983; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold; border: none; cursor: pointer; }
@@ -157,5 +174,9 @@ table { width: 100%; border-collapse: collapse; margin-top: 20px; }
 th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
 th { background-color: #f2f2f2; }
 .text-right { text-align: right; }
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { background-color: #e9ecef; }
+.sortable span { font-size: 0.8em; padding-left: 5px; }
+.no-data, .loading-state { text-align: center; color: #666; padding: 20px; font-style: italic; }
 .error { color: red; font-weight: bold; }
 </style>

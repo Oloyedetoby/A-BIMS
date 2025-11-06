@@ -108,10 +108,8 @@ const submitForm = async () => {
     return;
   }
   
-  // THIS IS THE CORRECTED PART:
-  // We get the customer.id from the invoice prop passed by the parent component,
-  // which we ensured has the full customer object attached to it.
-  const payload = {
+
+const payload = {
     customer: props.invoice.customer.id, 
     original_invoice: props.invoice.id,
     reason: creditNote.value.reason,

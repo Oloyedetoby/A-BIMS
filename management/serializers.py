@@ -1,21 +1,18 @@
 from rest_framework import serializers
-from django.db.models import Sum
-from decimal import Decimal
+from django.db.models import Sum, F, Value, DecimalField
+from django.db.models.functions import Coalesce
 from datetime import date
+
 from .models import (
     Customer, Book, Publisher, Invoice, InvoiceItem,
     Payment, Author, RouteAxis, CreditNote, CreditNoteItem
 )
 
-# --- Base "Read" Serializers (Define these first) ---
-
+# --- Base "Read" Serializers ---
 class PublisherSerializer(serializers.ModelSerializer):
     class Meta:
         model = Publisher
         fields = ['id', 'name', 'contact_person', 'phone_number']
-        
-
-        
 
 class AuthorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -33,15 +30,6 @@ class BookSerializer(serializers.ModelSerializer):
     class Meta:
         model = Book
         fields = ['id', 'title', 'author', 'publisher', 'price', 'quantity_in_stock']
-        
-class PublisherDetailSerializer(serializers.ModelSerializer):
-    # We will nest a list of all books from this publisher
-    books = BookSerializer(many=True, read_only=True, source='book_set')
-
-    class Meta:
-        model = Publisher
-        fields = ['id', 'name', 'contact_person', 'phone_number', 'books']
-        
 
 class CustomerSerializer(serializers.ModelSerializer):
     route_axis = serializers.StringRelatedField()
@@ -52,101 +40,113 @@ class CustomerSerializer(serializers.ModelSerializer):
 
 class InvoiceItemSerializer(serializers.ModelSerializer):
     book = serializers.StringRelatedField()
-    book_id = serializers.IntegerField(source='book.id', read_only=True) 
-
+    book_id = serializers.IntegerField(source='book.id', read_only=True)
     class Meta:
         model = InvoiceItem
-        fields = ['id', 'book', 'book_id', 'quantity', 'unit_price'] 
-        
+        fields = ['id', 'book', 'book_id', 'quantity', 'unit_price']
 
-# THIS CLASS MUST BE DEFINED BEFORE InvoiceSerializer
 class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = ['id', 'payment_date', 'amount', 'notes']
 
+# --- Helper function for credit calculation ---
+def get_credit_total_for_invoice(invoice_obj):
+    return CreditNoteItem.objects.filter(credit_note__original_invoice=invoice_obj).aggregate(
+        total=Coalesce(Sum(F('quantity') * F('unit_price')), Value(0), output_field=DecimalField())
+    )['total']
 
-# --- Complex "Read" Serializers ---
+
+# --- Complex "Read" and Detail Serializers ---
 
 class InvoiceSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source='customer.school_name', read_only=True)
     items = InvoiceItemSerializer(many=True, read_only=True)
     payments = PaymentSerializer(source='payment_set', many=True, read_only=True)
-    
-    # THESE ARE THE KEY FIXES: We are using SerializerMethodField again
     total_amount = serializers.SerializerMethodField()
     amount_paid = serializers.SerializerMethodField()
     credit_applied = serializers.SerializerMethodField()
     balance_due = serializers.SerializerMethodField()
-
     class Meta:
         model = Invoice
-        fields = [
-            'id', 'customer_name', 'invoice_date', 'due_date', 'status', 'items', 'payments', 
-            'total_amount', 'amount_paid', 'credit_applied', 'balance_due'
-        ]
+        fields = ['id', 'customer_name', 'invoice_date', 'due_date', 'status', 'items', 'payments', 'total_amount', 'amount_paid', 'credit_applied', 'balance_due']
 
     def get_total_amount(self, obj):
-        # Calculate from the prefetched items
         return sum(item.quantity * (item.unit_price or 0) for item in obj.items.all())
-
     def get_amount_paid(self, obj):
-        # Calculate from the prefetched payments
         return sum(payment.amount for payment in obj.payment_set.all())
-
     def get_credit_applied(self, obj):
-        # Calculate from prefetched credit notes and their items
-        return sum(item.quantity * item.unit_price for note in obj.creditnote_set.all() for item in note.items.all())
-
+        return get_credit_total_for_invoice(obj)
     def get_balance_due(self, obj):
-        total = self.get_total_amount(obj)
-        paid = self.get_amount_paid(obj)
-        credit = self.get_credit_applied(obj)
-        return total - paid - credit
-    
-class BookSaleHistorySerializer(serializers.ModelSerializer):
-    customer_name = serializers.CharField(source='invoice.customer.school_name', read_only=True)
-    invoice_id = serializers.IntegerField(source='invoice.id', read_only=True)
-    date = serializers.DateField(source='invoice.invoice_date', read_only=True)
-    class Meta:
-        model = InvoiceItem
-        fields = ['invoice_id', 'date', 'customer_name', 'quantity', 'unit_price']
+        return self.get_total_amount(obj) - self.get_amount_paid(obj) - self.get_credit_applied(obj)
 
-class BookDetailSerializer(serializers.ModelSerializer):
-    # THIS IS THE KEY CHANGE
-    author = AuthorSerializer(read_only=True)
-    publisher = PublisherSerializer(read_only=True)
-    
-    sale_history = BookSaleHistorySerializer(many=True, read_only=True, source='invoiceitem_set')
-    
-    class Meta:
-        model = Book
-        fields = ['id', 'title', 'author', 'publisher', 'price', 'quantity_in_stock', 'sale_history']
-
-class ReferredCustomerSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Customer
-        fields = ['id', 'school_name', 'route_axis']
-
-class NestedInvoiceSerializer(serializers.ModelSerializer):
-    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    amount_paid = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    balance_due = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+class DebtorInvoiceSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(source='customer.school_name', read_only=True)
+    customer_id = serializers.IntegerField(source='customer.id', read_only=True)
+    days_overdue = serializers.SerializerMethodField()
+    total_amount = serializers.SerializerMethodField()
+    amount_paid = serializers.SerializerMethodField()
+    credit_applied = serializers.SerializerMethodField()
+    balance_due = serializers.SerializerMethodField()
     class Meta:
         model = Invoice
-        fields = ['id', 'invoice_date', 'status', 'total_amount', 'amount_paid', 'balance_due']
+        fields = ['id', 'customer_name', 'customer_id', 'due_date', 'status', 'total_amount', 'amount_paid', 'credit_applied', 'balance_due', 'days_overdue']
+    
+    def get_days_overdue(self, obj):
+        if obj.due_date and obj.due_date < date.today(): return (date.today() - obj.due_date).days
+        return 0
+    def get_total_amount(self, obj): return sum(item.quantity * (item.unit_price or 0) for item in obj.items.all())
+    def get_amount_paid(self, obj): return sum(payment.amount for payment in obj.payment_set.all())
+    def get_credit_applied(self, obj): return get_credit_total_for_invoice(obj)
+    def get_balance_due(self, obj): return self.get_total_amount(obj) - self.get_amount_paid(obj) - self.get_credit_applied(obj)
+
+class NestedInvoiceSerializer(serializers.ModelSerializer):
+    total_amount = serializers.SerializerMethodField(); amount_paid = serializers.SerializerMethodField(); credit_applied = serializers.SerializerMethodField(); balance_due = serializers.SerializerMethodField()
+    class Meta:
+        model = Invoice
+        fields = ['id', 'invoice_date', 'status', 'total_amount', 'amount_paid', 'credit_applied', 'balance_due']
+    def get_total_amount(self, obj): return sum(item.quantity * (item.unit_price or 0) for item in obj.items.all())
+    def get_amount_paid(self, obj): return sum(payment.amount for payment in obj.payment_set.all())
+    def get_credit_applied(self, obj): return get_credit_total_for_invoice(obj)
+    def get_balance_due(self, obj): return self.get_total_amount(obj) - self.get_amount_paid(obj) - self.get_credit_applied(obj)
+
+class BookSaleHistorySerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(source='invoice.customer.school_name', read_only=True); invoice_id = serializers.IntegerField(source='invoice.id', read_only=True); date = serializers.DateField(source='invoice.invoice_date', read_only=True)
+    class Meta: model = InvoiceItem; fields = ['invoice_id', 'date', 'customer_name', 'quantity', 'unit_price']
+
+class BookDetailSerializer(serializers.ModelSerializer):
+    author = AuthorSerializer(read_only=True); publisher = PublisherSerializer(read_only=True); sale_history = BookSaleHistorySerializer(many=True, read_only=True, source='invoiceitem_set')
+    class Meta: model = Book; fields = ['id', 'title', 'author', 'publisher', 'price', 'quantity_in_stock', 'sale_history']
+
+class ReferredCustomerSerializer(serializers.ModelSerializer):
+    class Meta: model = Customer; fields = ['id', 'school_name', 'route_axis']
 
 class CustomerDetailSerializer(serializers.ModelSerializer):
-    route_axis = serializers.StringRelatedField()
-    referred_by = ReferredCustomerSerializer(read_only=True)
-    invoices = NestedInvoiceSerializer(many=True, read_only=True, source='invoice_set')
-    referred_customers = ReferredCustomerSerializer(many=True, read_only=True)
+    route_axis = serializers.StringRelatedField(); referred_by = ReferredCustomerSerializer(read_only=True); invoices = NestedInvoiceSerializer(many=True, read_only=True, source='invoice_set'); referred_customers = ReferredCustomerSerializer(many=True, read_only=True)
     class Meta:
         model = Customer
-        fields = [
-            'id', 'school_name', 'route_axis', 'address', 'contact_person', 
-            'phone_number', 'referred_by', 'invoices', 'referred_customers'
-        ]
+        fields = ['id', 'school_name', 'route_axis', 'address', 'contact_person', 'phone_number', 'referred_by', 'invoices', 'referred_customers']
+
+# THIS IS THE NEWLY ADDED SERIALIZER
+class AuthorDetailSerializer(serializers.ModelSerializer):
+    books = BookSerializer(many=True, read_only=True, source='book_set')
+    class Meta:
+        model = Author
+        fields = ['id', 'name', 'books']
+
+# THIS IS THE NEWLY ADDED SERIALIZER
+class PublisherDetailSerializer(serializers.ModelSerializer):
+    books = BookSerializer(many=True, read_only=True, source='book_set')
+    class Meta:
+        model = Publisher
+        fields = ['id', 'name', 'contact_person', 'phone_number', 'books']
+
+# THIS IS THE NEWLY ADDED SERIALIZER
+class RouteAxisDetailSerializer(serializers.ModelSerializer):
+    customers = CustomerSerializer(many=True, read_only=True, source='customer_set')
+    class Meta:
+        model = RouteAxis
+        fields = ['id', 'name', 'customers']
 
 
 # --- "Write" Serializers for Creating/Updating Data ---
@@ -199,63 +199,19 @@ class InvoiceWriteSerializer(serializers.ModelSerializer):
         fields = ['customer_id', 'due_date', 'status', 'items']
     def create(self, validated_data):
         items_data = validated_data.pop('items')
-        
-        # --- START: Stock Validation ---
         for item_data in items_data:
             try:
                 book = Book.objects.get(id=item_data['book_id'])
                 if book.quantity_in_stock < item_data['quantity']:
-                    # Not enough stock, raise a validation error
-                    raise serializers.ValidationError(
-                        f"Not enough stock for '{book.title}'. Only {book.quantity_in_stock} available."
-                    )
+                    raise serializers.ValidationError(f"Not enough stock for '{book.title}'. Only {book.quantity_in_stock} available.")
             except Book.DoesNotExist:
                 raise serializers.ValidationError(f"Book with ID {item_data['book_id']} does not exist.")
-        # --- END: Stock Validation ---
-
-        # If validation passes, proceed to create the invoice
         invoice = Invoice.objects.create(**validated_data)
-        
         for item_data in items_data:
             book = Book.objects.get(id=item_data['book_id'])
-            InvoiceItem.objects.create(
-                invoice=invoice, 
-                book=book, 
-                quantity=item_data['quantity'], 
-                unit_price=book.price
-            )
-            # Decrease stock and save
-            book.quantity_in_stock -= item_data['quantity']
-            book.save()
-            
+            InvoiceItem.objects.create(invoice=invoice, book=book, quantity=item_data['quantity'], unit_price=book.price)
+            book.quantity_in_stock -= item_data['quantity']; book.save()
         return invoice
-
-
-
-class DebtorInvoiceSerializer(serializers.ModelSerializer):
-    customer_name = serializers.CharField(source='customer.school_name', read_only=True)
-    customer_id = serializers.IntegerField(source='customer.id')
-    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    amount_paid = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    balance_due = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    credit_applied = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    
-    # NEW: The calculated field for days overdue
-    days_overdue = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Invoice
-        # ADD 'days_overdue' to the fields list
-        fields = ['id', 'customer_name', 'customer_id', 'due_date', 'status', 'total_amount', 
-                  'amount_paid', 'balance_due', 'credit_applied', 'days_overdue']
-
-    # NEW: The function that does the calculation
-    def get_days_overdue(self, obj):
-        # Calculate the difference between today and the due date
-        if obj.due_date and obj.due_date < date.today():
-            return (date.today() - obj.due_date).days
-        return 0 # If not overdue, return 0
-
 
 class CreditNoteItemWriteSerializer(serializers.ModelSerializer):
     book_id = serializers.IntegerField()
@@ -265,58 +221,15 @@ class CreditNoteItemWriteSerializer(serializers.ModelSerializer):
 
 class CreditNoteWriteSerializer(serializers.ModelSerializer):
     items = CreditNoteItemWriteSerializer(many=True)
-    # We expect IDs from the frontend
-    customer_id = serializers.IntegerField(source='customer.id')
-    original_invoice_id = serializers.IntegerField(source='original_invoice.id')
-
     class Meta:
         model = CreditNote
-        fields = ['customer_id', 'original_invoice_id', 'reason', 'items']
-
+        fields = ['customer', 'original_invoice', 'reason', 'items']
     def create(self, validated_data):
         items_data = validated_data.pop('items')
-        
-        # Manually get the customer and invoice objects
-        customer_id = self.context['request'].data.get('customer')
-        original_invoice_id = self.context['request'].data.get('original_invoice')
-        customer = Customer.objects.get(id=customer_id)
-        original_invoice = Invoice.objects.get(id=original_invoice_id)
-        
-        credit_note = CreditNote.objects.create(
-            customer=customer,
-            original_invoice=original_invoice,
-            reason=validated_data.get('reason', '')
-        )
-
+        credit_note = CreditNote.objects.create(**validated_data)
         for item_data in items_data:
-            CreditNoteItem.objects.create(credit_note=credit_note, **item_data)
-            try:
-                book = Book.objects.get(id=item_data['book_id'])
-                book.quantity_in_stock += item_data['quantity']
-                book.save()
-            except Book.DoesNotExist:
-                continue
+            book_obj = Book.objects.get(id=item_data.pop('book_id'))
+            CreditNoteItem.objects.create(credit_note=credit_note, book=book_obj, **item_data)
+            book_obj.quantity_in_stock += item_data['quantity']
+            book_obj.save()
         return credit_note
-
-
-
-
-class AuthorDetailSerializer(serializers.ModelSerializer):
-    # We will nest a list of all books written by this author.
-    # We use our existing BookSerializer for this.
-    books = BookSerializer(many=True, read_only=True, source='book_set')
-
-    class Meta:
-        model = Author
-        fields = ['id', 'name', 'books']
-
-
-
-class RouteAxisDetailSerializer(serializers.ModelSerializer):
-    # We will nest a list of all customers in this axis
-    # source='customer_set' is the default Django name for the reverse relationship
-    customers = CustomerSerializer(many=True, read_only=True, source='customer_set')
-
-    class Meta:
-        model = RouteAxis
-        fields = ['id', 'name', 'customers']

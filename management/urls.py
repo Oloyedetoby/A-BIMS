@@ -3,9 +3,11 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     CustomerViewSet, BookViewSet, PublisherViewSet, dashboard_stats, 
-    InvoiceViewSet, debtors_list, RouteAxisViewSet, AuthorViewSet
+    InvoiceViewSet, RouteAxisViewSet, AuthorViewSet
 )
 from .views import CreditNoteViewSet 
+from .views import DebtorsListView 
+from .views import business_insights 
 
 
 router = DefaultRouter()
@@ -20,6 +22,8 @@ router.register(r'authors', AuthorViewSet, basename='author')
 
 urlpatterns = [
     path('dashboard-stats/', dashboard_stats, name='dashboard-stats'),
-    path('debtors/', debtors_list, name='debtors-list'),
+    path('debtors/', DebtorsListView.as_view(), name='debtors-list'),
+    path('insights/', business_insights, name='business-insights'),
     path('', include(router.urls)),
 ]
+

@@ -2,7 +2,7 @@
   <div class="dashboard">
     <h2>Dashboard</h2>
     
-    <div v-if="loading">Loading dashboard...</div>
+    <div v-if="loading" class="loading-state">Loading dashboard...</div>
     <div v-if="error" class="error">{{ error }}</div>
 
     <!-- Stats Cards Section -->
@@ -22,16 +22,20 @@
     </div>
 
     <!-- Debtors Danger Zone Section -->
-    <div v-if="debtors.length > 0" class="debtors-zone">
+    <div v-if="!loading && debtors.length > 0" class="debtors-zone">
       <h3><span class="danger-icon">⚠️</span> Overdue & Unpaid Invoices</h3>
       <table>
         <thead>
           <tr>
             <th>Invoice #</th>
             <th>Customer</th>
-            <th>Due Date</th>
+            <th @click="sortBy('due_date')" class="sortable">
+              Due Date <span v-if="sortField === 'due_date'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
             <th class="text-center">Days Overdue</th>
-            <th class="text-right">Balance Due</th>
+            <th @click="sortBy('balance_due')" class="sortable text-right">
+              Balance Due <span v-if="sortField === 'balance_due'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -64,23 +68,51 @@ const debtors = ref([]);
 const loading = ref(true);
 const error = ref(null);
 
+// State for sorting
+const sortField = ref('due_date'); // Default sort field
+const sortDir = ref('asc'); // Default sort direction
+
+const fetchDebtors = async () => {
+  try {
+    const orderingParam = `${sortDir.value === 'desc' ? '-' : ''}${sortField.value}`;
+    const response = await apiClient.get('/debtors/', {
+      params: { ordering: orderingParam }
+    });
+    debtors.value = response.data;
+  } catch (err) {
+    error.value = 'Failed to fetch debtors list.';
+    console.error(err);
+  }
+};
+
+const fetchStats = async () => {
+    try {
+        const response = await apiClient.get('/dashboard-stats/');
+        stats.value = response.data;
+    } catch (err) {
+        error.value = 'Failed to fetch dashboard stats.';
+        console.error(err);
+    }
+};
+
 onMounted(async () => {
   loading.value = true;
-  error.value = null;
-  try {
-    const [statsRes, debtorsRes] = await Promise.all([
-      apiClient.get('/dashboard-stats/'),
-      apiClient.get('/debtors/'),
-    ]);
-    stats.value = statsRes.data;
-    debtors.value = debtorsRes.data;
-  } catch (err) {
-    error.value = 'Failed to fetch dashboard data.';
-    console.error(err);
-  } finally {
-    loading.value = false;
-  }
+  await Promise.all([
+    fetchStats(),
+    fetchDebtors()
+  ]);
+  loading.value = false;
 });
+
+const sortBy = (field) => {
+  if (sortField.value === field) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField.value = field;
+    sortDir.value = field === 'balance_due' ? 'desc' : 'asc';
+  }
+  fetchDebtors(); // Re-fetch the data with the new sort order
+};
 
 const formatPrice = (value) => {
     const num = parseFloat(value);
@@ -91,7 +123,7 @@ const getOverdueClass = (days) => {
   if (days > 30) return 'overdue-critical';
   if (days > 7) return 'overdue-warning';
   if (days > 0) return 'overdue-ok';
-  return ''; // Not overdue
+  return '';
 };
 
 const viewCustomer = (customerId) => {
@@ -99,7 +131,6 @@ const viewCustomer = (customerId) => {
 };
 
 const viewInvoice = (invoiceId) => {
-  // A simple navigation for now. Can be enhanced to scroll to the invoice.
   router.push('/invoices');
 };
 </script>
@@ -139,6 +170,19 @@ th { background-color: #ffdddd; }
 td { background-color: #fff; }
 tr:last-child td { border-bottom: none; }
 
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+.sortable:hover {
+  background-color: #f5c7c7;
+}
+.sortable span {
+  font-size: 0.8em;
+  padding-left: 5px;
+}
+
 .text-right { text-align: right; }
 .text-center { text-align: center; }
 
@@ -158,4 +202,6 @@ tr:last-child td { border-bottom: none; }
 .overdue-warning { font-weight: bold; color: #fd7e14; }
 .overdue-critical { font-weight: bold; color: #d0021b; background-color: #ffe8e8; }
 .no-debtors { text-align: center; padding: 30px; font-size: 1.2rem; color: #28a745; background-color: #f0fff4; border: 1px solid #28a745; border-radius: 8px; }
+.loading-state, .error { text-align: center; padding: 20px; font-style: italic; }
+.error { color: red; font-weight: bold; }
 </style>

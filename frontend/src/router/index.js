@@ -20,9 +20,10 @@ import PublishersView from '../views/PublishersView.vue';
 import PublisherDetailView from '../views/PublisherDetailView.vue';
 import RouteAxesView from '../views/RouteAxesView.vue';
 import RouteAxisDetailView from '../views/RouteAxisDetailView.vue'; // The import is here and correct
-
+import InsightsView from '../views/InsightsView.vue';
 // --- Special Views (Checked for correctness) ---
 import PrintReceiptView from '../views/PrintReceiptView.vue';
+
 
 const routes = [
   // Routes that use the main layout with the navbar
@@ -46,6 +47,7 @@ const routes = [
 
       { path: 'publishers', name: 'Publishers', component: PublishersView },
       { path: 'publishers/:id', name: 'PublisherDetail', component: PublisherDetailView },
+      { path: '/insights', name: 'Insights', component: InsightsView },
       
       { path: 'route-axes', name: 'RouteAxes', component: RouteAxesView },
       { path: 'route-axes/:id', name: 'RouteAxisDetail', component: RouteAxisDetailView }, // The route is here and correct

@@ -78,15 +78,13 @@
       </div>
     </div>
 
-    <!-- The Edit Customer Modal -->
+    <!-- Modals -->
     <CustomerFormModal 
       :show="showEditModal" 
       :customer="customer"
       @close="showEditModal = false"
       @customer-saved="handleCustomerSaved"
     />
-
-    <!-- The Delete Confirmation Dialog -->
     <ConfirmDialog 
       :show="showDeleteModal"
       title="Delete Customer"
@@ -94,8 +92,6 @@
       @cancel="showDeleteModal = false"
       @confirm="deleteCustomer"
     />
-
-    <!-- The New Credit Note Modal -->
     <CreditNoteFormModal
       :show="showCreditNoteModal"
       :invoice="selectedInvoiceForCredit"
@@ -117,7 +113,6 @@ import CreditNoteFormModal from '../components/CreditNoteFormModal.vue';
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
-
 const customer = ref(null);
 const loading = ref(true);
 const error = ref(null);
@@ -126,7 +121,6 @@ const showDeleteModal = ref(false);
 const showCreditNoteModal = ref(false);
 const selectedInvoiceForCredit = ref(null);
 
-// --- API Calls & Actions ---
 const fetchCustomerData = async () => {
   loading.value = true;
   const customerId = route.params.id;
@@ -147,7 +141,7 @@ const deleteCustomer = async () => {
     await apiClient.delete(`/customers/${customer.value.id}/`);
     toast.success(`Customer "${customer.value.school_name}" deleted successfully.`);
     showDeleteModal.value = false;
-    router.push('/customers'); // Navigate back to the customer list
+    router.push('/customers');
   } catch (err) {
     toast.error("Failed to delete customer.");
     console.error(err);
@@ -156,41 +150,45 @@ const deleteCustomer = async () => {
 
 onMounted(fetchCustomerData);
 
-// --- Event Handlers ---
 const handleCustomerSaved = () => {
   showEditModal.value = false;
-  fetchCustomerData(); // Re-fetch the data to show the latest updates
+  fetchCustomerData();
 };
 
 const openCreditNoteModal = (invoice) => {
-  // This is the fix: Attach the main customer object to the selected invoice
   selectedInvoiceForCredit.value = { ...invoice, customer: customer.value };
   showCreditNoteModal.value = true;
 };
 
 const handleCreditNoteSaved = () => {
   showCreditNoteModal.value = false;
-  fetchCustomerData(); // Refresh all data to see updated balances
+  fetchCustomerData();
 };
 
-// --- Computed Properties for Stats ---
 const customerStats = computed(() => {
   if (!customer.value || !customer.value.invoices) {
     return { totalInvoiced: 0, totalPaid: 0, outstandingBalance: 0 };
   }
-  const totalInvoiced = customer.value.invoices?.reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
-  const totalPaid = customer.value.invoices?.reduce((sum, inv) => sum + parseFloat(inv.amount_paid || 0), 0);
+
+  const totalInvoiced = customer.value.invoices.reduce((sum, inv) => {
+    return sum + Number(inv.total_amount || 0);
+  }, 0);
+
+  const totalPaid = customer.value.invoices.reduce((sum, inv) => {
+    return sum + Number(inv.amount_paid || 0);
+  }, 0);
+  
   const outstandingBalance = totalInvoiced - totalPaid;
   
   return { totalInvoiced, totalPaid, outstandingBalance };
 });
 
-// --- Helper Functions ---
 const formatPrice = (value) => {
   const num = parseFloat(value);
   if (isNaN(num)) return '0.00';
   return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
+
 const getInvoiceStatusClass = (status) => {
   if (!status) return '';
   return status.toLowerCase().replace('_', '');
